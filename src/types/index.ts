@@ -18,6 +18,10 @@ export interface User {
   timezone?: string
   discord_handle?: string
   wallet_address?: string
+  slack_username?: string
+  whatsapp_number?: string
+  linkedin_url?: string
+  github_url?: string
   is_active: boolean
   invite_accepted_at?: string
   created_at: string
@@ -54,6 +58,7 @@ export interface Session {
   link?: string
   learning_objectives?: string
   resources_url?: string
+  recording_url?: string
   status: SessionStatus
 }
 
@@ -87,6 +92,9 @@ export interface Project {
   demo_url?: string
   repo_url?: string
   pitch_deck_url?: string
+  target_users?: string
+  figma_url?: string
+  notion_url?: string
   updated_at: string
 }
 
@@ -96,6 +104,10 @@ export interface ProgressUpdate {
   student_id: string
   summary: string
   blockers?: string
+  learned?: string
+  next_steps?: string
+  links: string[]
+  related_session_id?: string
   created_at: string
 }
 
@@ -137,5 +149,6 @@ export interface MentorComment {
   student_id: string
   comment: string
   rating?: 1 | 2 | 3 | 4 | 5
+  progress_update_id?: string
   created_at: string
 }
