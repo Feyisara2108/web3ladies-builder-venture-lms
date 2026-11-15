@@ -272,7 +272,20 @@ export async function getProjectByStudentId(studentId: string): Promise<Project 
 
 export async function updateOwnProfile(
   userId: string,
-  input: Partial<Pick<User, 'full_name' | 'bio' | 'timezone' | 'discord_handle' | 'wallet_address'>>,
+  input: Partial<
+    Pick<
+      User,
+      | 'full_name'
+      | 'bio'
+      | 'timezone'
+      | 'discord_handle'
+      | 'wallet_address'
+      | 'slack_username'
+      | 'whatsapp_number'
+      | 'linkedin_url'
+      | 'github_url'
+    >
+  >,
 ): Promise<User> {
   const { data, error } = await supabase
     .from('users')
@@ -452,6 +465,10 @@ export async function createProgressUpdate(input: {
   student_id: string
   summary: string
   blockers?: string
+  learned?: string
+  next_steps?: string
+  links?: string[]
+  related_session_id?: string
 }): Promise<ProgressUpdate> {
   const { data, error } = await supabase.from('progress_updates').insert(input).select().single()
   if (error) throw error
@@ -478,6 +495,7 @@ export async function createMentorComment(input: {
   student_id: string
   comment: string
   rating?: MentorComment['rating']
+  progress_update_id?: string
 }): Promise<MentorComment> {
   const { data, error } = await supabase.from('mentor_comments').insert(input).select().single()
   if (error) throw error
@@ -553,7 +571,16 @@ export async function updateProjectDetails(
   input: Partial<
     Pick<
       Project,
-      'name' | 'problem_statement' | 'solution' | 'description' | 'demo_url' | 'repo_url' | 'pitch_deck_url'
+      | 'name'
+      | 'problem_statement'
+      | 'solution'
+      | 'description'
+      | 'target_users'
+      | 'demo_url'
+      | 'repo_url'
+      | 'figma_url'
+      | 'notion_url'
+      | 'pitch_deck_url'
     >
   >,
 ): Promise<Project> {
