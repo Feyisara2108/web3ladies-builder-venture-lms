@@ -1,13 +1,20 @@
 import * as React from 'react'
-import { Loader2, Lock } from 'lucide-react'
+import {
+  BookOpen,
+  FileText,
+  FolderKanban,
+  GitBranch,
+  Globe,
+  Loader2,
+  PenTool,
+  Lock,
+  MessageSquareText,
+  Save,
+  Sparkles,
+} from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { PageHeader } from '@/components/PageHeader'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Page, PageHeader } from '@/components/PageHeader'
+import { EmptyState, Panel, PanelHeader, PanelItem, Pill } from '@/components/Panel'
 import {
   createProject,
   getProjectByStudentId,
@@ -18,6 +25,63 @@ import { stageLabels, stageOrder, timeAgo } from '@/lib/format'
 import { cn, getErrorMessage } from '@/lib/utils'
 import type { MentorComment, Project } from '@/types'
 
+const inputCls =
+  'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring'
+
+function Field({
+  label,
+  hint,
+  icon,
+  children,
+  className,
+}: {
+  label: string
+  hint?: string
+  icon?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <label className={cn('block', className)}>
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        {label}
+        {icon}
+      </span>
+      <div className="mt-1.5">{children}</div>
+      {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
+    </label>
+  )
+}
+
+const emptyForm = {
+  name: '',
+  problem_statement: '',
+  solution: '',
+  target_users: '',
+  description: '',
+  repo_url: '',
+  demo_url: '',
+  figma_url: '',
+  notion_url: '',
+  pitch_deck_url: '',
+}
+type ProjectForm = typeof emptyForm
+
+function formFromProject(p: Project): ProjectForm {
+  return {
+    name: p.name ?? '',
+    problem_statement: p.problem_statement ?? '',
+    solution: p.solution ?? '',
+    target_users: p.target_users ?? '',
+    description: p.description ?? '',
+    repo_url: p.repo_url ?? '',
+    demo_url: p.demo_url ?? '',
+    figma_url: p.figma_url ?? '',
+    notion_url: p.notion_url ?? '',
+    pitch_deck_url: p.pitch_deck_url ?? '',
+  }
+}
+
 function CreateProjectCard({ onCreated }: { onCreated: (project: Project) => void }) {
   const { user } = useAuth()
   const [form, setForm] = React.useState({ name: '', problem_statement: '', solution: '' })
@@ -26,11 +90,9 @@ function CreateProjectCard({ onCreated }: { onCreated: (project: Project) => voi
 
   if (!user.cohort_id) {
     return (
-      <Card>
-        <CardContent className="pt-6 text-sm text-muted-foreground">
-          You're not in a cohort yet, so you can't start a project. Ask your admin to add you to one.
-        </CardContent>
-      </Card>
+      <EmptyState>
+        You're not in a cohort yet, so you can't start a project. Ask your admin to add you to one.
+      </EmptyState>
     )
   }
 
@@ -55,52 +117,48 @@ function CreateProjectCard({ onCreated }: { onCreated: (project: Project) => voi
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Start your project</CardTitle>
-        <CardDescription>
-          Give it a working name — you can change everything later. Your mentor will move it through the stages.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="new-name">Project name</Label>
-            <Input
-              id="new-name"
-              required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="new-problem">Problem statement (optional)</Label>
-            <Textarea
-              id="new-problem"
-              rows={2}
-              value={form.problem_statement}
-              onChange={(e) => setForm((f) => ({ ...f, problem_statement: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="new-solution">Solution (optional)</Label>
-            <Textarea
-              id="new-solution"
-              rows={2}
-              value={form.solution}
-              onChange={(e) => setForm((f) => ({ ...f, solution: e.target.value }))}
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div>
-            <Button type="submit" disabled={submitting || !form.name.trim()}>
-              {submitting && <Loader2 className="size-4 animate-spin" />}
-              Create project
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+    <Panel>
+      <PanelHeader
+        icon={Sparkles}
+        title="Start your project"
+        description="Give it a working name. You can change everything later, and your mentor will move it through the stages."
+      />
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <Field label="Project name">
+          <input
+            className={inputCls}
+            required
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
+        </Field>
+        <Field label="Problem (optional)">
+          <textarea
+            rows={2}
+            className={inputCls}
+            value={form.problem_statement}
+            onChange={(e) => setForm((f) => ({ ...f, problem_statement: e.target.value }))}
+          />
+        </Field>
+        <Field label="Solution (optional)">
+          <textarea
+            rows={2}
+            className={inputCls}
+            value={form.solution}
+            onChange={(e) => setForm((f) => ({ ...f, solution: e.target.value }))}
+          />
+        </Field>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <button
+          type="submit"
+          disabled={submitting || !form.name.trim()}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {submitting && <Loader2 className="size-4 animate-spin" />}
+          Create project
+        </button>
+      </form>
+    </Panel>
   )
 }
 
@@ -110,16 +168,7 @@ export function StudentWorkspace() {
   const [comments, setComments] = React.useState<MentorComment[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
-
-  const [form, setForm] = React.useState({
-    name: '',
-    problem_statement: '',
-    solution: '',
-    description: '',
-    demo_url: '',
-    repo_url: '',
-    pitch_deck_url: '',
-  })
+  const [form, setForm] = React.useState<ProjectForm>(emptyForm)
   const [saving, setSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
@@ -131,21 +180,13 @@ export function StudentWorkspace() {
         if (cancelled) return
         setProject(projectData)
         if (projectData) {
-          setForm({
-            name: projectData.name ?? '',
-            problem_statement: projectData.problem_statement ?? '',
-            solution: projectData.solution ?? '',
-            description: projectData.description ?? '',
-            demo_url: projectData.demo_url ?? '',
-            repo_url: projectData.repo_url ?? '',
-            pitch_deck_url: projectData.pitch_deck_url ?? '',
-          })
+          setForm(formFromProject(projectData))
           const commentData = await listMentorComments({ projectId: projectData.id })
           if (!cancelled) setComments(commentData)
         }
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load workspace')
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load project')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -164,39 +205,35 @@ export function StudentWorkspace() {
   }
 
   if (loadError) {
-    return <p className="text-sm text-destructive">{loadError}</p>
+    return (
+      <Page>
+        <p className="text-sm text-destructive">{loadError}</p>
+      </Page>
+    )
   }
 
   if (!project) {
     return (
-      <div className="flex flex-col gap-6">
-        <PageHeader title="Workspace" description="You don't have a project yet." />
+      <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-10">
+        <PageHeader eyebrow="Builder workspace" title="Project" description="You don't have a project yet." />
         <CreateProjectCard
           onCreated={(created) => {
             setProject(created)
-            setForm({
-              name: created.name ?? '',
-              problem_statement: created.problem_statement ?? '',
-              solution: created.solution ?? '',
-              description: created.description ?? '',
-              demo_url: created.demo_url ?? '',
-              repo_url: created.repo_url ?? '',
-              pitch_deck_url: created.pitch_deck_url ?? '',
-            })
+            setForm(formFromProject(created))
           }}
         />
       </div>
     )
   }
 
-  function handleChange(field: keyof typeof form) {
+  function update(field: keyof ProjectForm) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((f) => ({ ...f, [field]: e.target.value }))
       setSaved(false)
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!project) return
     setSaving(true)
@@ -205,8 +242,9 @@ export function StudentWorkspace() {
       const updated = await updateProjectDetails(project.id, form)
       setProject(updated)
       setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save project')
+      setSaveError(getErrorMessage(err, 'Failed to save project'))
     } finally {
       setSaving(false)
     }
@@ -215,113 +253,98 @@ export function StudentWorkspace() {
   const stageIndex = stageOrder.indexOf(project.current_stage)
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title="Workspace" description="Manage your project details. Stage is set by your mentor." />
+    <form onSubmit={handleSave} className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-10">
+      <PageHeader
+        eyebrow="Builder workspace"
+        title="Project"
+        description="Keep your project details current. Your mentor reviews this each week."
+        action={
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            {saved ? 'Saved' : 'Save changes'}
+          </button>
+        }
+      />
+      {saveError && <p className="text-sm text-destructive">{saveError}</p>}
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between gap-2">
-            {stageOrder.map((stage, i) => (
-              <div key={stage} className="flex flex-1 flex-col items-center gap-1.5">
+      <Panel>
+        <PanelHeader icon={Sparkles} title="Identity" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Project name">
+            <input className={inputCls} value={form.name} onChange={update('name')} />
+          </Field>
+          <Field label="Current stage" hint="Updated by mentor/admin — read only" icon={<Lock className="size-3" />}>
+            <div className="flex items-center gap-2">
+              <Pill>{stageLabels[project.current_stage]}</Pill>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={cn(
-                    'h-1.5 w-full rounded-full',
-                    i <= stageIndex ? 'bg-primary' : 'bg-muted',
-                  )}
+                  className="h-full bg-primary"
+                  style={{ width: `${((stageIndex + 1) / stageOrder.length) * 100}%` }}
                 />
-                <span
-                  className={cn(
-                    'text-xs',
-                    i === stageIndex ? 'font-semibold text-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  {stageLabels[stage]}
-                </span>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between">
-            <div>
-              <CardTitle>Project details</CardTitle>
-              <CardDescription>Editable by you.</CardDescription>
             </div>
-            <Badge variant="secondary" className="gap-1">
-              <Lock className="size-3" />
-              Stage: {stageLabels[project.current_stage]}
-            </Badge>
-          </CardHeader>
-          <CardContent>
-            <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="name">Project name</Label>
-                <Input id="name" value={form.name} onChange={handleChange('name')} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="problem_statement">Problem statement</Label>
-                <Textarea
-                  id="problem_statement"
-                  rows={2}
-                  value={form.problem_statement}
-                  onChange={handleChange('problem_statement')}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="solution">Solution</Label>
-                <Textarea id="solution" rows={2} value={form.solution} onChange={handleChange('solution')} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea id="description" rows={3} value={form.description} onChange={handleChange('description')} />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="demo_url">Demo link</Label>
-                  <Input id="demo_url" value={form.demo_url} onChange={handleChange('demo_url')} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="repo_url">Repo link</Label>
-                  <Input id="repo_url" value={form.repo_url} onChange={handleChange('repo_url')} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="pitch_deck_url">Pitch deck link</Label>
-                  <Input id="pitch_deck_url" value={form.pitch_deck_url} onChange={handleChange('pitch_deck_url')} />
-                </div>
-              </div>
-              {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-              <div className="flex items-center gap-3">
-                <Button type="submit" disabled={saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Save changes
-                </Button>
-                {saved && <span className="text-sm text-success">Saved</span>}
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+          </Field>
+        </div>
+      </Panel>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Mentor feedback</CardTitle>
-            <CardDescription>On this project.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {comments.length === 0 && (
-              <p className="text-sm text-muted-foreground">No feedback yet.</p>
-            )}
-            {comments.map((comment) => (
-              <div key={comment.id} className="rounded-lg border p-3 text-sm">
-                <p>{comment.comment}</p>
-                <p className="mt-2 text-xs text-muted-foreground">{timeAgo(comment.created_at)}</p>
-              </div>
+      <Panel>
+        <PanelHeader icon={FolderKanban} title="Problem & solution" />
+        <div className="space-y-4">
+          <Field label="Problem">
+            <textarea rows={3} className={inputCls} value={form.problem_statement} onChange={update('problem_statement')} />
+          </Field>
+          <Field label="Solution">
+            <textarea rows={3} className={inputCls} value={form.solution} onChange={update('solution')} />
+          </Field>
+          <Field label="Target users">
+            <textarea rows={2} className={inputCls} value={form.target_users} onChange={update('target_users')} />
+          </Field>
+          <Field label="Description">
+            <textarea rows={3} className={inputCls} value={form.description} onChange={update('description')} />
+          </Field>
+        </div>
+      </Panel>
+
+      <Panel>
+        <PanelHeader icon={Globe} title="Project links" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="GitHub" icon={<GitBranch className="size-3" />}>
+            <input type="url" className={inputCls} value={form.repo_url} onChange={update('repo_url')} />
+          </Field>
+          <Field label="Demo" icon={<Globe className="size-3" />}>
+            <input type="url" className={inputCls} value={form.demo_url} onChange={update('demo_url')} />
+          </Field>
+          <Field label="Figma" icon={<PenTool className="size-3" />}>
+            <input type="url" className={inputCls} value={form.figma_url} onChange={update('figma_url')} />
+          </Field>
+          <Field label="Notion" icon={<BookOpen className="size-3" />}>
+            <input type="url" className={inputCls} value={form.notion_url} onChange={update('notion_url')} />
+          </Field>
+          <Field label="Pitch deck" icon={<FileText className="size-3" />} className="md:col-span-2">
+            <input type="url" className={inputCls} value={form.pitch_deck_url} onChange={update('pitch_deck_url')} />
+          </Field>
+        </div>
+      </Panel>
+
+      <Panel>
+        <PanelHeader icon={MessageSquareText} title="Mentor feedback" description="Comments from your mentors on this project." />
+        {comments.length === 0 ? (
+          <EmptyState>No feedback yet.</EmptyState>
+        ) : (
+          <ul className="space-y-3">
+            {comments.map((c) => (
+              <PanelItem key={c.id}>
+                <div className="text-xs text-muted-foreground">{timeAgo(c.created_at)}</div>
+                <p className="mt-1 text-sm leading-relaxed">{c.comment}</p>
+              </PanelItem>
             ))}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+          </ul>
+        )}
+      </Panel>
+    </form>
   )
 }

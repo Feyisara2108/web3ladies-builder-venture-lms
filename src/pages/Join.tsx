@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { BrandIcon, Wordmark } from '@/components/BrandLogo'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthState } from '@/lib/auth'
@@ -67,10 +68,17 @@ export function Join() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-md">
+      <div className="mb-6 text-center">
+        <div className="inline-flex items-center gap-2.5">
+          <BrandIcon className="size-9" />
+          <Wordmark className="text-xl" />
+        </div>
+      </div>
+      <Card className="w-full rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl">Join Web3Ladies</CardTitle>
+          <CardTitle className="text-xl">Join the Builder Venture</CardTitle>
           {checking && <CardDescription>Checking your invite link…</CardDescription>}
           {!checking && info?.valid && (
             <CardDescription>You're joining {info.cohort_name}.</CardDescription>
@@ -144,6 +152,7 @@ export function Join() {
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

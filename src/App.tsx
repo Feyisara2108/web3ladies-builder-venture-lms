@@ -32,6 +32,9 @@ import { AdminUsers } from '@/pages/admin/Users'
 import { AdminSessions } from '@/pages/admin/Sessions'
 import { AdminProjects } from '@/pages/admin/Projects'
 import { AdminSettings } from '@/pages/admin/Settings'
+import { AdminUserDetail } from '@/pages/admin/UserDetail'
+import { AdminSessionDetail } from '@/pages/admin/SessionDetail'
+import { AdminProjectDetail } from '@/pages/admin/ProjectDetail'
 
 function RoleHomeRedirect() {
   const { role } = useAuth()
@@ -41,12 +44,12 @@ function RoleHomeRedirect() {
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/join/:token" element={<Join />} />
 
       <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<RoleHomeRedirect />} />
         <Route path="/set-password" element={<SetPassword />} />
         <Route path="*" element={<RoleHomeRedirect />} />
       </Route>
@@ -69,6 +72,7 @@ function AppRoutes() {
           <Route path="/mentor/sessions" element={<MentorSessions />} />
           <Route path="/mentor/reviews" element={<MentorReviews />} />
           <Route path="/mentor/reviews/:reviewId" element={<MentorReviewDetail />} />
+          <Route path="/mentor/profile" element={<StudentProfile />} />
         </Route>
       </Route>
 
@@ -78,9 +82,13 @@ function AppRoutes() {
           <Route path="/admin/cohorts" element={<AdminCohorts />} />
           <Route path="/admin/cohorts/:cohortId" element={<AdminCohortDetail />} />
           <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/users/:userId" element={<AdminUserDetail />} />
           <Route path="/admin/sessions" element={<AdminSessions />} />
+          <Route path="/admin/sessions/:sessionId" element={<AdminSessionDetail />} />
           <Route path="/admin/projects" element={<AdminProjects />} />
+          <Route path="/admin/projects/:projectId" element={<AdminProjectDetail />} />
           <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/admin/profile" element={<StudentProfile />} />
         </Route>
       </Route>
     </Routes>

@@ -1,61 +1,114 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, Loader2, Users, MessageSquareText } from 'lucide-react'
-import { useAuth } from '@/lib/auth'
-import { PageHeader } from '@/components/PageHeader'
-import { StatCard } from '@/components/StatCard'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
-  listMentorComments,
-  listProgressUpdatesForStudents,
-  listProjects,
-  listSessions,
-  listStudentsForMentor,
-  mentorCohortIds,
-} from '@/data/queries'
+  AlertTriangle,
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  Clock,
+  FolderKanban,
+  LineChart,
+  Sparkles,
+  Users,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { useAuth } from '@/lib/auth'
+import { HeaderChip, Page, PageHeader } from '@/components/PageHeader'
+import { EmptyState, Panel, PanelHeader, PanelLink, Pill } from '@/components/Panel'
+import { StatCard } from '@/components/StatCard'
+import { PageError, PageLoading } from '@/components/PageStatus'
+import { listMentorComments, listProjects, listSessions, mentorCohortIds } from '@/data/queries'
+import {
+  attentionReasonMeta,
+  errorMessage,
+  groupFeedbackByUpdate,
+  listActiveStudents,
+  listAllAttendance,
+  listAllProgressUpdates,
+  listCohortNames,
+  listMyAssignedStudentIds,
+  reviewStatus,
+  reviewStatusMeta,
+  studentHealth,
+} from '@/data/queries-mentor'
 import { formatDateTime, stageLabels, timeAgo } from '@/lib/format'
-import type { MentorComment, Project, ProgressUpdate, Session, User } from '@/types'
+import { cn } from '@/lib/utils'
+import type {
+  AttendanceRecord,
+  MentorComment,
+  Project,
+  ProgressUpdate,
+  Session,
+  User,
+} from '@/types'
 
-function initials(name: string) {
-  return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
+type ActivityKind = 'update' | 'project' | 'missed'
+
+const activityIcon: Record<ActivityKind, LucideIcon> = {
+  update: LineChart,
+  project: FolderKanban,
+  missed: AlertTriangle,
 }
 
-const STALE_DAYS = 7
+const activityTone: Record<ActivityKind, string> = {
+  update: 'bg-primary/10 text-primary',
+  project: 'bg-accent text-accent-foreground',
+  missed: 'bg-destructive/10 text-destructive',
+}
+
+interface Activity {
+  id: string
+  kind: ActivityKind
+  who: string
+  text: string
+  at: string
+  to: string
+  cta: string
+  pill?: { label: string; tone: 'warning' | 'success' | 'destructive' }
+}
+
+const ACTIVITY_LIMIT = 8
 
 export function MentorDashboard() {
   const { user } = useAuth()
 
   const [students, setStudents] = React.useState<User[]>([])
+  const [assignedIds, setAssignedIds] = React.useState<Set<string>>(new Set())
   const [sessions, setSessions] = React.useState<Session[]>([])
   const [projects, setProjects] = React.useState<Project[]>([])
-  const [progressUpdates, setProgressUpdates] = React.useState<ProgressUpdate[]>([])
-  const [myComments, setMyComments] = React.useState<MentorComment[]>([])
+  const [updates, setUpdates] = React.useState<ProgressUpdate[]>([])
+  const [attendance, setAttendance] = React.useState<AttendanceRecord[]>([])
+  const [comments, setComments] = React.useState<MentorComment[]>([])
+  const [cohortNames, setCohortNames] = React.useState<Map<string, string>>(new Map())
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
-    listStudentsForMentor(user)
-      .then(async ({ students: studentData }) => {
-        const studentIds = studentData.map((s) => s.id)
-        const [sessionData, projectData, updateData, commentData] = await Promise.all([
-          listSessions(),
-          listProjects(),
-          listProgressUpdatesForStudents(studentIds),
-          listMentorComments({ mentorId: user.id }),
-        ])
+    Promise.all([
+      listActiveStudents(),
+      listMyAssignedStudentIds(user.id),
+      listSessions(),
+      listProjects(),
+      listAllProgressUpdates(),
+      listAllAttendance(),
+      listMentorComments(),
+      listCohortNames(),
+    ])
+      .then(([s, a, se, p, u, at, c, cn]) => {
         if (cancelled) return
-        setStudents(studentData)
-        setSessions(sessionData)
-        setProjects(projectData)
-        setProgressUpdates(updateData)
-        setMyComments(commentData)
+        const activeIds = new Set(s.map((x) => x.id))
+        setStudents(s)
+        setAssignedIds(a)
+        setSessions(se)
+        setProjects(p)
+        setUpdates(u.filter((x) => activeIds.has(x.student_id)))
+        setAttendance(at.filter((x) => activeIds.has(x.student_id)))
+        setComments(c)
+        setCohortNames(cn)
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load dashboard')
+        if (!cancelled) setLoadError(errorMessage(err, 'Failed to load dashboard'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -63,126 +116,280 @@ export function MentorDashboard() {
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [user.id])
 
-  const cohortIds = mentorCohortIds(user, students)
-  const upcoming = sessions
-    .filter((s) => cohortIds.has(s.cohort_id) && new Date(s.start_time).getTime() >= Date.now())
-    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-    .slice(0, 3)
+  const derived = React.useMemo(() => {
+    const sessionsById = new Map(sessions.map((s) => [s.id, s]))
+    const studentsById = new Map(students.map((s) => [s.id, s]))
+    const projectByStudent = new Map(projects.map((p) => [p.student_id, p]))
+    const feedback = groupFeedbackByUpdate(updates, comments)
 
-  const needsAttention = students.filter((s) => {
-    const updates = progressUpdates.filter((u) => u.student_id === s.id)
-    if (updates.length === 0) return true
-    const daysSince = (Date.now() - new Date(updates[0].created_at).getTime()) / (1000 * 60 * 60 * 24)
-    return daysSince > STALE_DAYS
-  })
+    const flagged = students
+      .map((student) => ({
+        student,
+        project: projectByStudent.get(student.id),
+        health: studentHealth(
+          updates.filter((u) => u.student_id === student.id),
+          attendance.filter((r) => r.student_id === student.id),
+          sessionsById,
+        ),
+      }))
+      .filter((x) => x.health.status !== 'on-track')
+      .sort(
+        (a, b) =>
+          Number(assignedIds.has(b.student.id)) - Number(assignedIds.has(a.student.id)) ||
+          Number(b.health.status === 'at-risk') - Number(a.health.status === 'at-risk'),
+      )
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+    const pendingReviews = updates.filter((u) => reviewStatus(u, feedback.get(u.id)) !== 'reviewed')
 
-  if (loadError) {
-    return <p className="text-sm text-destructive">{loadError}</p>
-  }
+    const cohortIds = mentorCohortIds(user, students)
+    const nextSession = sessions
+      .filter(
+        (s) =>
+          cohortIds.has(s.cohort_id) &&
+          s.status !== 'cancelled' &&
+          new Date(s.start_time).getTime() >= Date.now(),
+      )
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0]
+
+    const firstName = (id: string) => studentsById.get(id)?.full_name.split(' ')[0] ?? 'A student'
+    const activity: Activity[] = []
+    for (const u of updates) {
+      const status = reviewStatus(u, feedback.get(u.id))
+      const project = projectByStudent.get(u.student_id)
+      activity.push({
+        id: `u-${u.id}`,
+        kind: 'update',
+        who: firstName(u.student_id),
+        text: `submitted a progress update${project ? ` on ${project.name}` : ''}`,
+        at: u.created_at,
+        to: `/mentor/reviews/${u.id}`,
+        cta: status === 'reviewed' ? 'View review' : 'Review update',
+        pill: status === 'reviewed' ? undefined : reviewStatusMeta[status],
+      })
+    }
+    for (const p of projects) {
+      if (!studentsById.has(p.student_id)) continue
+      activity.push({
+        id: `p-${p.id}`,
+        kind: 'project',
+        who: firstName(p.student_id),
+        text: `updated their project ${p.name} · ${stageLabels[p.current_stage]}`,
+        at: p.updated_at,
+        to: `/mentor/students/${p.student_id}`,
+        cta: 'View student',
+      })
+    }
+    for (const r of attendance) {
+      if (r.status !== 'absent') continue
+      const session = sessionsById.get(r.session_id)
+      activity.push({
+        id: `a-${r.id}`,
+        kind: 'missed',
+        who: firstName(r.student_id),
+        text: `missed ${session?.title ?? 'a session'}`,
+        at: session?.start_time ?? r.marked_at,
+        to: `/mentor/students/${r.student_id}`,
+        cta: 'View student',
+      })
+    }
+    activity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+
+    return {
+      flagged,
+      pendingReviews,
+      nextSession,
+      activity: activity.slice(0, ACTIVITY_LIMIT),
+    }
+  }, [students, assignedIds, sessions, projects, updates, attendance, comments, user])
+
+  if (loading) return <PageLoading />
+  if (loadError) return <PageError message={loadError} />
+
+  const { flagged, pendingReviews, nextSession, activity } = derived
+  const cohortName = user.cohort_id ? cohortNames.get(user.cohort_id) : undefined
 
   return (
-    <div className="flex flex-col gap-6">
+    <Page>
       <PageHeader
-        title={`Welcome back, ${user.full_name.split(' ')[0]}`}
-        description="Here's how your students are doing."
+        eyebrow={cohortName ? `Mentor · ${cohortName}` : 'Mentor'}
+        title={`Welcome back, ${user.full_name.split(' ')[0]}.`}
+        description="Here's where your students need you today."
+        action={
+          <HeaderChip
+            label="Next session"
+            value={nextSession ? formatDateTime(nextSession.start_time) : 'None scheduled'}
+          />
+        }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Students" value={students.length} icon={Users} />
         <StatCard
-          label="Need attention"
-          value={needsAttention.length}
-          icon={AlertTriangle}
-          hint="No update in 7+ days"
+          icon={Users}
+          label="Assigned students"
+          value={assignedIds.size}
+          hint={`of ${students.length} active student${students.length === 1 ? '' : 's'}`}
         />
-        <StatCard label="Reviews given" value={myComments.length} icon={MessageSquareText} />
-        <StatCard label="Upcoming sessions" value={upcoming.length} icon={CalendarClock} />
+        <StatCard
+          icon={CheckCircle2}
+          label="Pending progress reviews"
+          value={pendingReviews.length}
+          hint="Updates awaiting feedback"
+        />
+        <StatCard
+          icon={CalendarDays}
+          label="Upcoming session"
+          value={nextSession ? formatDateTime(nextSession.start_time) : '—'}
+          hint={nextSession?.title ?? 'Nothing scheduled yet'}
+        />
+        <StatCard
+          icon={AlertTriangle}
+          label="Students needing attention"
+          value={flagged.length}
+          hint="See list below"
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Students needing attention</CardTitle>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/mentor/students">View all students</Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {needsAttention.length === 0 && (
-              <p className="text-sm text-muted-foreground">Everyone's on track. Nice.</p>
-            )}
-            {needsAttention.map((student) => {
-              const project = projects.find((p) => p.student_id === student.id)
-              return (
-                <Link
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Panel className="lg:col-span-2">
+          <PanelHeader
+            icon={AlertTriangle}
+            title="Students needing attention"
+            action={<span className="text-xs text-muted-foreground">{flagged.length} flagged</span>}
+          />
+          {flagged.length === 0 ? (
+            <EmptyState>Everyone's on track. Nice.</EmptyState>
+          ) : (
+            <ul className="space-y-3">
+              {flagged.map(({ student, project, health }) => (
+                <li
                   key={student.id}
-                  to={`/mentor/students/${student.id}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border p-3 hover:bg-accent"
+                  className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-background/60 p-4"
                 >
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarFallback>{initials(student.full_name)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium">{student.full_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {project ? project.name : 'No project yet'}
-                      </p>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{student.full_name}</div>
+                      {health.reasons.map((r) => (
+                        <Pill
+                          key={r.reason}
+                          tone={attentionReasonMeta[r.reason].tone}
+                          className="px-2 py-0.5 text-[10px]"
+                        >
+                          {attentionReasonMeta[r.reason].label}
+                        </Pill>
+                      ))}
+                      {assignedIds.has(student.id) && (
+                        <Pill tone="accent" className="px-2 py-0.5 text-[10px]">
+                          Assigned to you
+                        </Pill>
+                      )}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {project ? (
+                        <>
+                          {project.name} ·{' '}
+                          <span className="text-foreground/80">{stageLabels[project.current_stage]}</span>
+                        </>
+                      ) : (
+                        'No project yet'
+                      )}
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {health.reasons.map((r) => r.detail).join(' · ')}
                     </div>
                   </div>
-                  {project && (
-                    <Badge variant="warning">{stageLabels[project.current_stage]}</Badge>
-                  )}
-                </Link>
-              )
-            })}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Upcoming sessions</CardTitle>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/mentor/sessions">View all</Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {upcoming.map((session) => (
-              <div key={session.id} className="rounded-lg border p-3">
-                <p className="text-sm font-medium">{session.title}</p>
-                <p className="text-xs text-muted-foreground">{formatDateTime(session.start_time)}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Your recent reviews</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {myComments.length === 0 && (
-            <p className="text-sm text-muted-foreground">You haven't left feedback yet.</p>
+                  <div className="flex shrink-0 gap-2">
+                    <a
+                      href={`mailto:${student.email}`}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                    >
+                      Reach out
+                    </a>
+                    <Link
+                      to={`/mentor/students/${student.id}`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Review
+                      <ArrowRight className="size-3" />
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
-          {myComments.slice(0, 3).map((comment) => (
-            <div key={comment.id} className="rounded-lg border p-3 text-sm">
-              <p>{comment.comment}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{timeAgo(comment.created_at)}</p>
+        </Panel>
+
+        <Panel>
+          <PanelHeader
+            icon={Sparkles}
+            title="Upcoming session"
+            action={<PanelLink to="/mentor/sessions">View all</PanelLink>}
+          />
+          {nextSession ? (
+            <div className="space-y-3">
+              <h3 className="text-lg leading-tight font-semibold">{nextSession.title}</h3>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="size-4" />
+                {formatDateTime(nextSession.start_time)}
+              </div>
+              {nextSession.description && (
+                <p className="text-sm leading-relaxed text-muted-foreground">{nextSession.description}</p>
+              )}
             </div>
-          ))}
-        </CardContent>
-      </Card>
-    </div>
+          ) : (
+            <EmptyState>No upcoming sessions for your cohorts.</EmptyState>
+          )}
+        </Panel>
+
+        <Panel className="lg:col-span-3">
+          <PanelHeader
+            icon={LineChart}
+            title="Recent activity"
+            action={<PanelLink to="/mentor/reviews">Open review queue</PanelLink>}
+          />
+          {activity.length === 0 ? (
+            <EmptyState>No student activity yet.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-border">
+              {activity.map((a) => {
+                const Icon = activityIcon[a.kind]
+                return (
+                  <li key={a.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                    <div
+                      className={cn(
+                        'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full',
+                        activityTone[a.kind],
+                      )}
+                    >
+                      <Icon className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-relaxed">
+                        <span className="font-medium">{a.who}</span>{' '}
+                        <span className="text-muted-foreground">{a.text}</span>
+                        {a.pill && (
+                          <Pill tone={a.pill.tone} className="ml-2 px-2 py-0.5 text-[10px]">
+                            {a.pill.label}
+                          </Pill>
+                        )}
+                      </p>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{timeAgo(a.at)}</div>
+                    </div>
+                    <Link
+                      to={a.to}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                    >
+                      {a.cta}
+                      <ArrowRight className="size-3" />
+                    </Link>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </Panel>
+      </div>
+    </Page>
   )
 }

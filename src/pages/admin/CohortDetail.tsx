@@ -1,30 +1,33 @@
 import * as React from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft,
-  Calendar,
+  BarChart3,
+  CalendarDays,
+  CalendarPlus,
   Check,
   Copy,
   FolderKanban,
+  LineChart,
   Link2,
   Loader2,
   Pencil,
-  Plus,
-  TrendingUp,
   Trash2,
   UserPlus,
+  UserRound,
   Users,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { PageHeader } from '@/components/PageHeader'
+import { Page } from '@/components/PageHeader'
+import { Panel, PanelHeader } from '@/components/Panel'
 import { StatCard } from '@/components/StatCard'
+import { DataTable, EmptyRow, Td, Tr } from '@/components/DataTable'
+import { BackLink, NotFoundState, PageError, PageLoading } from '@/components/PageState'
+import { Tag } from '@/components/Tag'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -42,17 +45,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   assignMentorToStudents,
   createInviteLink,
-  createSession,
   deleteCohort,
   getActiveInviteLink,
   getCohort,
@@ -68,7 +62,9 @@ import {
   unassignMentorFromStudent,
   updateCohort,
 } from '@/data/queries'
-import { formatDate, formatDateTime, nowForDateTimeInput, stageLabels, todayForDateInput } from '@/lib/format'
+import { formatDate, stageLabels, todayForDateInput } from '@/lib/format'
+import { getErrorMessage } from '@/lib/utils'
+import { useToast } from '@/lib/toast'
 import type {
   AttendanceRecord,
   Cohort,
@@ -76,30 +72,14 @@ import type {
   MentorAssignment,
   Project,
   ProgressUpdate,
-  ProjectStage,
   Session,
   User,
 } from '@/types'
-
-const statusVariant: Record<CohortStatus, 'success' | 'outline' | 'secondary'> = {
-  active: 'success',
-  upcoming: 'outline',
-  completed: 'secondary',
-  archived: 'outline',
-}
-
-function initials(name: string) {
-  return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
-}
-
-function attendanceRate(records: AttendanceRecord[], filterFn: (r: AttendanceRecord) => boolean) {
-  const scoped = records.filter(filterFn)
-  if (scoped.length === 0) return null
-  const present = scoped.filter((r) => r.status === 'present').length
-  return Math.round((present / scoped.length) * 100)
-}
+import { attendanceRate, cohortStatusTone, formatRate, formatSessionDate, initials, stageTone } from './helpers'
+import { SessionDialog } from './SessionDialog'
 
 function EditCohortDialog({ cohort, onSaved }: { cohort: Cohort; onSaved: (c: Cohort) => void }) {
+  const { showToast } = useToast()
   const [open, setOpen] = React.useState(false)
   const [form, setForm] = React.useState({
     name: cohort.name,
@@ -149,8 +129,9 @@ function EditCohortDialog({ cohort, onSaved }: { cohort: Cohort; onSaved: (c: Co
       })
       onSaved(updated)
       setOpen(false)
+      showToast('Cohort updated')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save cohort')
+      setError(getErrorMessage(err, 'Failed to save cohort'))
     } finally {
       setSubmitting(false)
     }
@@ -159,7 +140,7 @@ function EditCohortDialog({ cohort, onSaved }: { cohort: Cohort; onSaved: (c: Co
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button className="rounded-lg px-3">
           <Pencil className="size-4" /> Edit Cohort
         </Button>
       </DialogTrigger>
@@ -250,245 +231,6 @@ function EditCohortDialog({ cohort, onSaved }: { cohort: Cohort; onSaved: (c: Co
   )
 }
 
-function AddSessionDialog({
-  cohortId,
-  facilitators,
-  onCreated,
-}: {
-  cohortId: string
-  facilitators: User[]
-  onCreated: (s: Session) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const [form, setForm] = React.useState({
-    title: '',
-    type: 'live-class' as Session['type'],
-    stage: 'none' as ProjectStage | 'none',
-    start_time: '',
-    end_time: '',
-    facilitator_id: '',
-    location: 'discord' as Session['location'],
-    link: '',
-    description: '',
-    learning_objectives: '',
-    resources_url: '',
-  })
-  const [submitting, setSubmitting] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    if (open) setForm((f) => ({ ...f, facilitator_id: f.facilitator_id || (facilitators[0]?.id ?? '') }))
-  }, [open, facilitators])
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.title || !form.start_time || !form.end_time || !form.facilitator_id) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      const created = await createSession({
-        cohort_id: cohortId,
-        title: form.title,
-        type: form.type,
-        stage: form.stage === 'none' ? null : form.stage,
-        start_time: new Date(form.start_time).toISOString(),
-        end_time: new Date(form.end_time).toISOString(),
-        facilitator_id: form.facilitator_id,
-        location: form.location,
-        link: form.location === 'in-person' ? null : form.link.trim() || null,
-        description: form.description || null,
-        learning_objectives: form.learning_objectives || null,
-        resources_url: form.resources_url || null,
-      })
-      onCreated(created)
-      setForm({
-        title: '',
-        type: 'live-class',
-        stage: 'none',
-        start_time: '',
-        end_time: '',
-        facilitator_id: '',
-        location: 'discord',
-        link: '',
-        description: '',
-        learning_objectives: '',
-        resources_url: '',
-      })
-      setOpen(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to schedule session')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Plus className="size-4" /> Add Session
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Schedule session</DialogTitle>
-          <DialogDescription>Add a new session to this cohort's calendar.</DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="session-title">Title</Label>
-            <Input
-              id="session-title"
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label>Type</Label>
-              <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v as Session['type'] }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="live-class">Live class</SelectItem>
-                  <SelectItem value="workshop">Workshop</SelectItem>
-                  <SelectItem value="office-hours">Office hours</SelectItem>
-                  <SelectItem value="demo-day">Demo day</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Curriculum stage (optional)</Label>
-              <Select
-                value={form.stage}
-                onValueChange={(v) => setForm((f) => ({ ...f, stage: v as ProjectStage | 'none' }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {Object.entries(stageLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="start-time">Start</Label>
-              <Input
-                id="start-time"
-                type="datetime-local"
-                min={nowForDateTimeInput()}
-                value={form.start_time}
-                onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="end-time">End</Label>
-              <Input
-                id="end-time"
-                type="datetime-local"
-                min={form.start_time || nowForDateTimeInput()}
-                value={form.end_time}
-                onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <Label>Facilitator</Label>
-              <Select
-                value={form.facilitator_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, facilitator_id: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a facilitator" />
-                </SelectTrigger>
-                <SelectContent>
-                  {facilitators.map((fac) => (
-                    <SelectItem key={fac.id} value={fac.id}>
-                      {fac.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Location</Label>
-              <Select
-                value={form.location}
-                onValueChange={(v) => setForm((f) => ({ ...f, location: v as Session['location'] }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="discord">Discord</SelectItem>
-                  <SelectItem value="zoom">Zoom</SelectItem>
-                  <SelectItem value="google-meet">Google Meet</SelectItem>
-                  <SelectItem value="in-person">In person</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          {form.location !== 'in-person' && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="cd-link">Meeting link</Label>
-              <Input
-                id="cd-link"
-                type="url"
-                placeholder="https://meet.google.com/..."
-                value={form.link}
-                onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">Students get a Join button with this link.</p>
-            </div>
-          )}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="cd-description">Description</Label>
-            <Textarea
-              id="cd-description"
-              rows={2}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="cd-learning-objectives">Learning objectives</Label>
-            <Textarea
-              id="cd-learning-objectives"
-              rows={2}
-              value={form.learning_objectives}
-              onChange={(e) => setForm((f) => ({ ...f, learning_objectives: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="cd-resources-url">Resources (Notion page link)</Label>
-            <Input
-              id="cd-resources-url"
-              value={form.resources_url}
-              onChange={(e) => setForm((f) => ({ ...f, resources_url: e.target.value }))}
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <DialogFooter>
-            <Button type="submit" disabled={submitting}>
-              {submitting && <Loader2 className="size-4 animate-spin" />}
-              Schedule session
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function AssignMentorDialog({
   mentors,
   students,
@@ -501,6 +243,7 @@ function AssignMentorDialog({
   onAssignmentsChanged: (next: MentorAssignment[]) => void
 }) {
   const { user: currentAdmin } = useAuth()
+  const { showToast } = useToast()
   const [open, setOpen] = React.useState(false)
   const [mentorId, setMentorId] = React.useState('')
   const [selectedStudentIds, setSelectedStudentIds] = React.useState<Set<string>>(new Set())
@@ -547,8 +290,9 @@ function AssignMentorDialog({
         ...newRows,
       ])
       setSelectedStudentIds(new Set())
+      showToast(`Assigned ${ids.length} student${ids.length === 1 ? '' : 's'}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign mentor')
+      setError(getErrorMessage(err, 'Failed to assign mentor'))
     } finally {
       setBusy(false)
     }
@@ -563,7 +307,7 @@ function AssignMentorDialog({
         assignments.filter((a) => !(a.mentor_id === mentorId && a.student_id === studentId)),
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove assignment')
+      setError(getErrorMessage(err, 'Failed to remove assignment'))
     } finally {
       setBusy(false)
     }
@@ -572,7 +316,7 @@ function AssignMentorDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" className="rounded-lg">
           <UserPlus className="size-4" /> Assign Mentor
         </Button>
       </DialogTrigger>
@@ -690,7 +434,7 @@ function InviteLinkDialog({ cohort }: { cohort: Cohort }) {
         if (!cancelled) setLink(data)
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load invite link')
+        if (!cancelled) setError(getErrorMessage(err, 'Failed to load invite link'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -707,7 +451,7 @@ function InviteLinkDialog({ cohort }: { cohort: Cohort }) {
       const created = await createInviteLink(cohort.id, user.id)
       setLink(created)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate link')
+      setError(getErrorMessage(err, 'Failed to generate link'))
     } finally {
       setBusy(false)
     }
@@ -721,7 +465,7 @@ function InviteLinkDialog({ cohort }: { cohort: Cohort }) {
       await revokeInviteLink(link.id)
       setLink(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke link')
+      setError(getErrorMessage(err, 'Failed to revoke link'))
     } finally {
       setBusy(false)
     }
@@ -729,17 +473,21 @@ function InviteLinkDialog({ cohort }: { cohort: Cohort }) {
 
   const url = link ? `${window.location.origin}/join/${link.token}` : ''
 
-  function handleCopy() {
-    navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('Could not copy — select the link and copy it manually.')
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Link2 className="size-4" /> Invite link
+        <Button variant="outline" className="rounded-lg">
+          <Link2 className="size-4" /> Invite Link
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -793,6 +541,7 @@ function InviteLinkDialog({ cohort }: { cohort: Cohort }) {
 }
 
 function DeleteCohortDialog({ cohort }: { cohort: Cohort }) {
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const [open, setOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
@@ -803,9 +552,10 @@ function DeleteCohortDialog({ cohort }: { cohort: Cohort }) {
     setError(null)
     try {
       await deleteCohort(cohort.id)
+      showToast('Cohort deleted')
       navigate('/admin/cohorts', { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete cohort')
+      setError(getErrorMessage(err, 'Failed to delete cohort'))
       setBusy(false)
     }
   }
@@ -813,7 +563,7 @@ function DeleteCohortDialog({ cohort }: { cohort: Cohort }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+        <Button variant="outline" className="rounded-lg text-destructive hover:text-destructive">
           <Trash2 className="size-4" /> Delete
         </Button>
       </DialogTrigger>
@@ -855,6 +605,8 @@ export function AdminCohortDetail() {
   const [assignments, setAssignments] = React.useState<MentorAssignment[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
+  const [addSessionOpen, setAddSessionOpen] = React.useState(false)
 
   React.useEffect(() => {
     if (!cohortId) {
@@ -889,7 +641,9 @@ export function AdminCohortDetail() {
         setAssignments(assignmentData)
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load cohort')
+        if (cancelled) return
+        if (typeof err === 'object' && err && 'code' in err && err.code === 'PGRST116') setNotFound(true)
+        else setLoadError(getErrorMessage(err, 'Failed to load cohort'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -899,268 +653,233 @@ export function AdminCohortDetail() {
     }
   }, [cohortId])
 
-  if (loading) {
+  const facilitators = React.useMemo(
+    () => allUsers.filter((u) => u.role === 'mentor' || u.role === 'admin'),
+    [allUsers],
+  )
+
+  if (loading) return <PageLoading className="min-h-[60vh]" />
+
+  if (notFound || !cohort) {
+    if (loadError) {
+      return (
+        <Page>
+          <BackLink to="/admin/cohorts">Back to Cohorts</BackLink>
+          <PageError>{loadError}</PageError>
+        </Page>
+      )
+    }
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
+      <NotFoundState
+        icon={FolderKanban}
+        title="Cohort not found"
+        description={
+          <>
+            We couldn't find a cohort with the id <span className="font-mono">{cohortId}</span>.
+          </>
+        }
+        backTo="/admin/cohorts"
+        backLabel="Back to Cohorts"
+      />
     )
   }
 
-  if (loadError || !cohort) {
-    return (
-      <div className="flex flex-col gap-4">
-        <PageHeader title={loadError ? 'Failed to load cohort' : 'Cohort not found'} description={loadError ?? undefined} />
-        <Button variant="outline" asChild className="w-fit">
-          <Link to="/admin/cohorts">
-            <ArrowLeft className="size-4" /> Back to Cohorts
-          </Link>
-        </Button>
-      </div>
-    )
-  }
-
-  const overallAttendance = attendanceRate(attendance, () => true)
+  const sortedSessions = [...sessions].sort(
+    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+  )
+  const studentName = (id: string) => students.find((s) => s.id === id)?.full_name ?? '—'
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
-          <Link to="/admin/cohorts">
-            <ArrowLeft className="size-4" /> Back to Cohorts
-          </Link>
-        </Button>
-        <PageHeader
-          title={cohort.name}
-          description={
-            <span className="flex flex-wrap items-center gap-2">
-              {cohort.programme && <Badge variant="secondary">{cohort.programme}</Badge>}
-              <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
-                <Calendar className="size-3.5" />
+    <Page>
+      <BackLink to="/admin/cohorts">Back to Cohorts</BackLink>
+
+      {/* Overview */}
+      <Panel className="p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            {cohort.programme && (
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">{cohort.programme}</p>
+            )}
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight">{cohort.name}</h1>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <CalendarDays className="size-4" />
                 {formatDate(cohort.start_date)} — {formatDate(cohort.end_date)}
               </span>
-              <Badge variant={statusVariant[cohort.status]} className="capitalize">
+              <Tag tone={cohortStatusTone[cohort.status]} className="capitalize">
                 {cohort.status}
-              </Badge>
-            </span>
-          }
-          action={
-            <div className="flex flex-wrap items-center gap-2">
-              <AssignMentorDialog
-                mentors={mentors}
-                students={students}
-                assignments={assignments}
-                onAssignmentsChanged={setAssignments}
-              />
-              <AddSessionDialog
-                cohortId={cohort.id}
-                facilitators={allUsers.filter((u) => u.role === 'mentor' || u.role === 'admin')}
-                onCreated={(s) => setSessions((prev) => [...prev, s])}
-              />
-              <EditCohortDialog cohort={cohort} onSaved={setCohort} />
-              <InviteLinkDialog cohort={cohort} />
-              <DeleteCohortDialog cohort={cohort} />
+              </Tag>
+              {cohort.discord_invite_url && (
+                <a
+                  href={cohort.discord_invite_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Discord →
+                </a>
+              )}
+              {cohort.notion_url && (
+                <a href={cohort.notion_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  Notion →
+                </a>
+              )}
             </div>
-          }
-        />
-        {(cohort.discord_invite_url || cohort.notion_url) && (
-          <div className="flex flex-wrap gap-4 text-sm">
-            {cohort.discord_invite_url && (
-              <a
-                href={cohort.discord_invite_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                Discord →
-              </a>
-            )}
-            {cohort.notion_url && (
-              <a
-                href={cohort.notion_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                Notion →
-              </a>
-            )}
           </div>
-        )}
+          <div className="flex flex-wrap items-center gap-2">
+            <AssignMentorDialog
+              mentors={mentors}
+              students={students}
+              assignments={assignments}
+              onAssignmentsChanged={setAssignments}
+            />
+            <Button variant="outline" className="rounded-lg" onClick={() => setAddSessionOpen(true)}>
+              <CalendarPlus className="size-4" /> Add Session
+            </Button>
+            <InviteLinkDialog cohort={cohort} />
+            <DeleteCohortDialog cohort={cohort} />
+            <EditCohortDialog cohort={cohort} onSaved={setCohort} />
+          </div>
+        </div>
+      </Panel>
+
+      <SessionDialog
+        open={addSessionOpen}
+        onOpenChange={setAddSessionOpen}
+        fixedCohortId={cohort.id}
+        cohorts={[cohort]}
+        facilitators={facilitators}
+        onSaved={(s) => setSessions((prev) => [...prev, s])}
+      />
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard icon={Users} label="Students" value={students.length} />
+        <StatCard icon={UserRound} label="Mentors" value={mentors.length} />
+        <StatCard icon={CalendarDays} label="Sessions" value={sessions.length} />
+        <StatCard icon={BarChart3} label="Attendance Rate" value={formatRate(attendanceRate(attendance))} />
+        <StatCard icon={LineChart} label="Progress Updates" value={progressUpdates.length} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Students" value={students.length} icon={Users} />
-        <StatCard label="Mentors" value={mentors.length} icon={Users} />
-        <StatCard label="Sessions" value={sessions.length} icon={Calendar} />
-        <StatCard
-          label="Attendance Rate"
-          value={overallAttendance === null ? '—' : `${overallAttendance}%`}
-          icon={TrendingUp}
-        />
-        <StatCard label="Progress Updates" value={progressUpdates.length} icon={FolderKanban} />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Panel>
+          <PanelHeader
+            icon={Users}
+            title="Students"
+            action={<span className="text-xs text-muted-foreground">{students.length} total</span>}
+          />
+          <DataTable
+            framed={false}
+            compact
+            head={[{ label: 'Name' }, { label: 'Project' }, { label: 'Stage' }, { label: 'Attendance' }]}
+          >
+            {students.map((student) => {
+              const project = projects.find((p) => p.student_id === student.id)
+              return (
+                <Tr key={student.id}>
+                  <Td compact strong>
+                    <Link to={`/admin/users/${student.id}`} className="hover:underline">
+                      {student.full_name}
+                    </Link>
+                  </Td>
+                  <Td compact muted>
+                    {project?.name ?? '—'}
+                  </Td>
+                  <Td compact muted>
+                    {project ? (
+                      <Tag tone={stageTone[project.current_stage]}>{stageLabels[project.current_stage]}</Tag>
+                    ) : (
+                      '—'
+                    )}
+                  </Td>
+                  <Td compact muted>
+                    {formatRate(attendanceRate(attendance, (r) => r.student_id === student.id))}
+                  </Td>
+                </Tr>
+              )
+            })}
+            {students.length === 0 && <EmptyRow colSpan={4}>No students in this cohort yet.</EmptyRow>}
+          </DataTable>
+        </Panel>
+
+        <Panel>
+          <PanelHeader
+            icon={UserRound}
+            title="Mentors"
+            action={<span className="text-xs text-muted-foreground">{mentors.length} total</span>}
+          />
+          <DataTable framed={false} compact head={[{ label: 'Mentor Name' }, { label: 'Assigned Students' }]}>
+            {mentors.map((mentor) => (
+              <Tr key={mentor.id}>
+                <Td compact strong>
+                  <Link to={`/admin/users/${mentor.id}`} className="flex items-center gap-2 hover:underline">
+                    <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                      {initials(mentor.full_name)}
+                    </span>
+                    {mentor.full_name}
+                  </Link>
+                </Td>
+                <Td compact muted>
+                  {assignments.filter((a) => a.mentor_id === mentor.id).length}
+                </Td>
+              </Tr>
+            ))}
+            {mentors.length === 0 && <EmptyRow colSpan={2}>No mentors in this cohort yet.</EmptyRow>}
+          </DataTable>
+        </Panel>
+
+        <Panel>
+          <PanelHeader
+            icon={CalendarDays}
+            title="Sessions"
+            action={<span className="text-xs text-muted-foreground">{sessions.length} total</span>}
+          />
+          <DataTable framed={false} compact head={[{ label: 'Session Title' }, { label: 'Date' }, { label: 'Attendance' }]}>
+            {sortedSessions.map((session) => (
+              <Tr key={session.id}>
+                <Td compact strong>
+                  <Link to={`/admin/sessions/${session.id}`} className="hover:underline">
+                    {session.title}
+                  </Link>
+                </Td>
+                <Td compact muted className="whitespace-nowrap">
+                  {formatSessionDate(session.start_time)}
+                </Td>
+                <Td compact muted>
+                  {formatRate(attendanceRate(attendance, (r) => r.session_id === session.id))}
+                </Td>
+              </Tr>
+            ))}
+            {sessions.length === 0 && <EmptyRow colSpan={3}>No sessions scheduled yet.</EmptyRow>}
+          </DataTable>
+        </Panel>
+
+        <Panel>
+          <PanelHeader
+            icon={FolderKanban}
+            title="Projects"
+            action={<span className="text-xs text-muted-foreground">{projects.length} total</span>}
+          />
+          <DataTable framed={false} compact head={[{ label: 'Student' }, { label: 'Project' }, { label: 'Current Stage' }]}>
+            {projects.map((project) => (
+              <Tr key={project.id}>
+                <Td compact strong>
+                  {studentName(project.student_id)}
+                </Td>
+                <Td compact muted>
+                  <Link to={`/admin/projects/${project.id}`} className="hover:underline">
+                    {project.name}
+                  </Link>
+                </Td>
+                <Td compact>
+                  <Tag tone={stageTone[project.current_stage]}>{stageLabels[project.current_stage]}</Tag>
+                </Td>
+              </Tr>
+            ))}
+            {projects.length === 0 && <EmptyRow colSpan={3}>No projects yet.</EmptyRow>}
+          </DataTable>
+        </Panel>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Students</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {students.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No students in this cohort yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Stage</TableHead>
-                    <TableHead>Attendance</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {students.map((student) => {
-                    const project = projects.find((p) => p.student_id === student.id)
-                    const rate = attendanceRate(attendance, (r) => r.student_id === student.id)
-                    return (
-                      <TableRow key={student.id}>
-                        <TableCell className="font-medium">{student.full_name}</TableCell>
-                        <TableCell className="text-muted-foreground">{project?.name ?? '—'}</TableCell>
-                        <TableCell>
-                          {project ? (
-                            <Badge variant="outline">{stageLabels[project.current_stage]}</Badge>
-                          ) : (
-                            '—'
-                          )}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {rate === null ? '—' : `${rate}%`}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Mentors</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {mentors.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No mentors in this cohort yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Mentor name</TableHead>
-                    <TableHead>Assigned students</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {mentors.map((mentor) => (
-                    <TableRow key={mentor.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                            {initials(mentor.full_name)}
-                          </span>
-                          {mentor.full_name}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {assignments.filter((a) => a.mentor_id === mentor.id).length}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Sessions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sessions scheduled yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Session title</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Attendance</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sessions.map((session) => {
-                    const rate = attendanceRate(attendance, (r) => r.session_id === session.id)
-                    return (
-                      <TableRow key={session.id}>
-                        <TableCell className="font-medium">{session.title}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateTime(session.start_time)}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {rate === null ? '—' : `${rate}%`}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Projects</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {projects.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No projects yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Student</TableHead>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Current stage</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {projects.map((project) => {
-                    const student = students.find((s) => s.id === project.student_id)
-                    return (
-                      <TableRow key={project.id}>
-                        <TableCell className="font-medium">{student?.full_name ?? '—'}</TableCell>
-                        <TableCell className="text-muted-foreground">{project.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{stageLabels[project.current_stage]}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    </Page>
   )
 }

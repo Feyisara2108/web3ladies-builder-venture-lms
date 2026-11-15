@@ -1,5 +1,4 @@
 import type { LucideIcon } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
 export function StatCard({
@@ -16,19 +15,13 @@ export function StatCard({
   className?: string
 }) {
   return (
-    <Card className={cn(className)}>
-      <CardContent className="flex items-start justify-between gap-4 pt-6">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm text-muted-foreground">{label}</span>
-          <span className="text-2xl font-semibold">{value}</span>
-          {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-        </div>
-        {Icon && (
-          <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Icon className="size-4.5" />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className={cn('rounded-2xl border border-border bg-card p-4 shadow-sm', className)}>
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        {Icon && <Icon className="size-4" />}
+        {label}
+      </div>
+      <div className="mt-2 text-lg font-semibold leading-tight">{value}</div>
+      {hint && <div className="mt-1 truncate text-xs text-muted-foreground">{hint}</div>}
+    </div>
   )
 }
