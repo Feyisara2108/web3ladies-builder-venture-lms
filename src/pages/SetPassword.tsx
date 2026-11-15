@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { BrandIcon, Wordmark } from '@/components/BrandLogo'
 import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
@@ -49,8 +50,15 @@ export function SetPassword() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-md">
+      <div className="mb-6 text-center">
+        <div className="inline-flex items-center gap-2.5">
+          <BrandIcon className="size-9" />
+          <Wordmark className="text-xl" />
+        </div>
+      </div>
+      <Card className="w-full rounded-2xl shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl">Welcome, {user.full_name.split(' ')[0]}</CardTitle>
           <CardDescription>Set a password to finish setting up your account.</CardDescription>
@@ -99,6 +107,7 @@ export function SetPassword() {
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }
