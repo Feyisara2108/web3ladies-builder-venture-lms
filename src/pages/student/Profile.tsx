@@ -1,21 +1,81 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { BookOpen, Briefcase, ClipboardList, GitBranch, KeyRound, Loader2, Mail, MessageCircle, Save, UserRound } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { PageHeader } from '@/components/PageHeader'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getIntakeForm, saveIntakeForm, updateOwnProfile } from '@/data/queries'
+import { Panel } from '@/components/Panel'
+import {
+  getCohort,
+  getIntakeForm,
+  getUserNames,
+  listMentorAssignments,
+  saveIntakeForm,
+  updateOwnProfile,
+} from '@/data/queries'
 import { formatDate } from '@/lib/format'
-import { getErrorMessage } from '@/lib/utils'
+import { cn, getErrorMessage } from '@/lib/utils'
 import type { IntakeForm } from '@/types'
 
-function IntakeCard({
+const inputCls =
+  'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring'
+
+function Field({
+  label,
+  icon,
+  hint,
+  children,
+  required,
+  className,
+}: {
+  label: string
+  icon?: React.ReactNode
+  hint?: string
+  children: React.ReactNode
+  required?: boolean
+  className?: string
+}) {
+  return (
+    <label className={cn('block', className)}>
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        {label}
+        {required && <span className="text-destructive">*</span>}
+        {icon}
+        {hint && <span className="text-[10px] text-muted-foreground/70">({hint})</span>}
+      </span>
+      <div className="mt-1.5">{children}</div>
+    </label>
+  )
+}
+
+function Header({ icon: Icon, title, action }: { icon: LucideIcon; title: string; action?: React.ReactNode }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Icon className="size-4 text-primary" />
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+      </div>
+      {action}
+    </div>
+  )
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/60 p-3">
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-1 font-medium">{children}</dd>
+    </div>
+  )
+}
+
+const experienceLabels: Record<IntakeForm['experience_level'], string> = {
+  beginner: 'Beginner',
+  intermediate: 'Intermediate',
+  advanced: 'Advanced',
+}
+
+function IntakeSection({
   studentId,
   intake,
   onSaved,
@@ -65,121 +125,113 @@ function IntakeCard({
     }
   }
 
-  if (intake && !editing) {
-    return (
-      <Card>
-        <CardHeader className="flex-row items-start justify-between">
-          <div>
-            <CardTitle className="text-base">Intake form</CardTitle>
-            <CardDescription>Submitted {formatDate(intake.submitted_at)}</CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 text-sm">
-          <div>
-            <p className="font-medium">Experience level</p>
-            <p className="text-muted-foreground capitalize">{intake.experience_level}</p>
-          </div>
-          <div>
-            <p className="font-medium">Motivation</p>
-            <p className="text-muted-foreground">{intake.motivation}</p>
-          </div>
-          <div>
-            <p className="font-medium">Goals</p>
-            <p className="text-muted-foreground">{intake.goals}</p>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  const editButton = intake && !editing && (
+    <button type="button" onClick={() => setEditing(true)} className="text-xs font-medium text-primary hover:underline">
+      Edit
+    </button>
+  )
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Intake form</CardTitle>
-        <CardDescription>
-          {intake ? 'Update your answers.' : 'Tell your mentors where you are starting from.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-          <div className="flex flex-col gap-2">
-            <Label>Experience level</Label>
-            <Select
+    <Panel>
+      <Header icon={ClipboardList} title="Intake form" action={editButton} />
+      {intake && !editing ? (
+        <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+          <Row label="Experience level">{experienceLabels[intake.experience_level]}</Row>
+          <Row label="Submitted">{formatDate(intake.submitted_at)}</Row>
+          <div className="sm:col-span-2">
+            <Row label="Why did you join?">
+              <span className="whitespace-pre-line font-normal">{intake.motivation}</span>
+            </Row>
+          </div>
+          <div className="sm:col-span-2">
+            <Row label="What do you want to achieve?">
+              <span className="whitespace-pre-line font-normal">{intake.goals}</span>
+            </Row>
+          </div>
+        </dl>
+      ) : (
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <p className="text-xs text-muted-foreground">
+            {intake ? 'Update your answers.' : 'Tell your mentors where you are starting from.'}
+          </p>
+          <Field label="Experience level" required>
+            <select
+              className={inputCls}
               value={form.experience_level}
-              onValueChange={(v) =>
-                setForm((f) => ({ ...f, experience_level: v as IntakeForm['experience_level'] }))
+              onChange={(e) =>
+                setForm((f) => ({ ...f, experience_level: e.target.value as IntakeForm['experience_level'] }))
               }
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose one" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="beginner">Beginner</SelectItem>
-                <SelectItem value="intermediate">Intermediate</SelectItem>
-                <SelectItem value="advanced">Advanced</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="intake-motivation">Why did you join?</Label>
-            <Textarea
-              id="intake-motivation"
+              <option value="" disabled>
+                Choose one
+              </option>
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </Field>
+          <Field label="Why did you join?" required>
+            <textarea
               rows={3}
+              className={inputCls}
               value={form.motivation}
               onChange={(e) => setForm((f) => ({ ...f, motivation: e.target.value }))}
             />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="intake-goals">What do you want to achieve?</Label>
-            <Textarea
-              id="intake-goals"
+          </Field>
+          <Field label="What do you want to achieve?" required>
+            <textarea
               rows={3}
+              className={inputCls}
               value={form.goals}
               onChange={(e) => setForm((f) => ({ ...f, goals: e.target.value }))}
             />
-          </div>
+          </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex items-center gap-2">
-            <Button type="submit" disabled={saving}>
+          <div className="flex justify-end gap-2">
+            {intake && (
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
               {saving && <Loader2 className="size-4 animate-spin" />}
               {intake ? 'Save' : 'Submit'}
-            </Button>
-            {intake && (
-              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            )}
+            </button>
           </div>
         </form>
-      </CardContent>
-    </Card>
+      )}
+    </Panel>
   )
-}
-
-function initials(name: string) {
-  return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
 }
 
 export function StudentProfile() {
   const { user, refreshProfile } = useAuth()
   const [form, setForm] = React.useState({
     full_name: user.full_name,
-    bio: user.bio ?? '',
-    timezone: user.timezone ?? '',
-    discord_handle: user.discord_handle ?? '',
-    wallet_address: user.wallet_address ?? '',
+    slack_username: user.slack_username ?? '',
+    whatsapp_number: user.whatsapp_number ?? '',
+    linkedin_url: user.linkedin_url ?? '',
+    github_url: user.github_url ?? '',
   })
   const [saving, setSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
   const [intake, setIntake] = React.useState<IntakeForm | null>(null)
   const [intakeLoaded, setIntakeLoaded] = React.useState(false)
+  const [cohortName, setCohortName] = React.useState<string | null>(null)
+  const [mentorNames, setMentorNames] = React.useState<string[]>([])
 
   React.useEffect(() => {
     let cancelled = false
+    if (user.role !== 'student') return
     getIntakeForm(user.id)
       .then((data) => {
         if (cancelled) return
@@ -187,106 +239,145 @@ export function StudentProfile() {
         setIntakeLoaded(true)
       })
       .catch(() => {
-        // Non-critical for this page; leave the intake card hidden on failure.
+        // Non-critical for this page; leave the intake section hidden on failure.
       })
+    if (user.cohort_id) {
+      getCohort(user.cohort_id)
+        .then((c) => !cancelled && setCohortName(c.name))
+        .catch(() => {})
+    }
+    listMentorAssignments({ studentIds: [user.id] })
+      .then((rows) => getUserNames(rows.map((r) => r.mentor_id)))
+      .then((names) => !cancelled && setMentorNames(names.map((n) => n.full_name)))
+      .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [user.id])
+  }, [user.id, user.cohort_id, user.role])
 
-  function handleChange(field: keyof typeof form) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  function update(field: keyof typeof form) {
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
       setForm((f) => ({ ...f, [field]: e.target.value }))
       setSaved(false)
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    if (!form.full_name.trim()) {
+      setSaveError('Full name is required.')
+      return
+    }
     setSaving(true)
     setSaveError(null)
     try {
-      await updateOwnProfile(user.id, form)
+      await updateOwnProfile(user.id, { ...form, full_name: form.full_name.trim() })
       await refreshProfile()
       setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save profile')
+      setSaveError(getErrorMessage(err, 'Failed to save profile'))
     } finally {
       setSaving(false)
     }
   }
 
+  const initials = form.full_name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join('')
+
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title="Profile" description="Keep your profile accurate so mentors know who they're working with." />
+    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6 lg:px-10">
+      <PageHeader
+        eyebrow="Account"
+        title="Profile"
+        description="Keep your details accurate so your mentor and cohort can reach you."
+      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Your details</CardTitle>
-            <CardDescription>Visible to mentors and admins.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="full_name">Full name</Label>
-                <Input id="full_name" value={form.full_name} onChange={handleChange('full_name')} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" value={user.email} disabled />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="bio">Bio</Label>
-                <Textarea id="bio" rows={4} value={form.bio} onChange={handleChange('bio')} />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <Input id="timezone" value={form.timezone} onChange={handleChange('timezone')} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="discord_handle">Discord handle</Label>
-                  <Input id="discord_handle" value={form.discord_handle} onChange={handleChange('discord_handle')} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="wallet_address">Wallet address</Label>
-                <Input id="wallet_address" value={form.wallet_address} onChange={handleChange('wallet_address')} />
-              </div>
-              {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-              <div className="flex items-center gap-3">
-                <Button type="submit" disabled={saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Save changes
-                </Button>
-                {saved && <span className="text-sm text-success">Saved</span>}
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardContent className="flex flex-col items-center gap-3 pt-6 text-center">
-              <Avatar className="size-16">
-                <AvatarFallback className="text-lg">{initials(user.full_name)}</AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-medium">{user.full_name}</p>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/set-password">Change password</Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          {intakeLoaded && (
-            <IntakeCard studentId={user.id} intake={intake} onSaved={setIntake} />
-          )}
+      <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex size-16 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
+            {initials || '?'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-semibold">{user.full_name}</div>
+            <div className="text-sm text-muted-foreground">{user.email}</div>
+            <div className="mt-1 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-xs font-medium capitalize text-accent-foreground">
+              {user.role}
+            </div>
+          </div>
+          <Link
+            to="/set-password"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted"
+          >
+            <KeyRound className="size-3.5" />
+            Change password
+          </Link>
         </div>
-      </div>
+      </section>
+
+      <form onSubmit={handleSave} className="space-y-6 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="space-y-4">
+          <Header icon={UserRound} title="Basic Information" />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Full name" required>
+              <input className={inputCls} value={form.full_name} onChange={update('full_name')} />
+            </Field>
+            <Field label="Email" icon={<Mail className="size-3" />}>
+              <input type="email" readOnly className={cn(inputCls, 'cursor-not-allowed bg-muted/50')} value={user.email} />
+            </Field>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Use your exact registration name. Avoid nicknames or alternative names, as this information is used for
+            cohort records, attendance tracking, certificates, and programme administration.
+          </p>
+        </div>
+
+        <div className="space-y-4 border-t border-border pt-5">
+          <Header icon={MessageCircle} title="Contact Information" />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Slack username">
+              <input className={inputCls} value={form.slack_username} onChange={update('slack_username')} />
+            </Field>
+            <Field label="WhatsApp number" hint="preferred">
+              <input className={inputCls} value={form.whatsapp_number} onChange={update('whatsapp_number')} />
+            </Field>
+            <Field label="LinkedIn URL" icon={<Briefcase className="size-3" />}>
+              <input type="url" className={inputCls} value={form.linkedin_url} onChange={update('linkedin_url')} />
+            </Field>
+            <Field label="GitHub URL" icon={<GitBranch className="size-3" />} hint="optional">
+              <input type="url" className={inputCls} value={form.github_url} onChange={update('github_url')} />
+            </Field>
+          </div>
+        </div>
+
+        {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            {saved ? 'Saved' : 'Save changes'}
+          </button>
+        </div>
+      </form>
+
+      {user.role === 'student' && (
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <Header icon={BookOpen} title="Cohort Information" />
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            <Row label="Cohort">{cohortName ?? 'Not assigned yet'}</Row>
+            <Row label="Assigned mentor">{mentorNames.length ? mentorNames.join(', ') : 'Not assigned yet'}</Row>
+          </dl>
+        </section>
+      )}
+
+      {user.role === 'student' && intakeLoaded && <IntakeSection studentId={user.id} intake={intake} onSaved={setIntake} />}
     </div>
   )
 }
